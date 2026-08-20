@@ -1,1 +1,225 @@
 <!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Camo Generator</title>
+<style>
+    body {
+        margin: 0;
+        font-family: sans-serif;
+        color: white;
+    }
+    #controls {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        background: rgba(0,0,0,0.6);
+        padding: 15px;
+        border-radius: 10px;
+        max-width: 260px;
+    }
+    #downloadBtn {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background: #222;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 8px;
+        cursor: pointer;
+        border: none;
+    }
+    .colorRow {
+        margin-bottom: 8px;
+    }
+    input[type="number"] {
+        width: 80px;
+    }
+</style>
+</head>
+<body>
+
+<div id="controls">
+    <h3>Camo Generator</h3>
+
+    <label>Preview Width:
+        <input type="number" id="width" value="800">
+    </label><br>
+    <label>Preview Height:
+        <input type="number" id="height" value="800">
+    </label><br>
+    <label>Block Size:
+        <input type="number" id="blockSize" value="6">
+    </label><br>
+    <label>Max Run Length:
+        <input type="number" id="maxRun" value="4">
+    </label><br><br>
+
+    <label>Export Width:
+        <input type="number" id="exportWidth" value="800">
+    </label><br>
+    <label>Export Height:
+        <input type="number" id="exportHeight" value="800">
+    </label><br><br>
+
+    <h4>Colors</h4>
+    <div id="colors"></div>
+    <button type="button" onclick="addColor()">Add Color</button><br><br>
+
+    <button type="button" onclick="generateCamo()">Generate</button>
+</div>
+
+<button id="downloadBtn" type="button" onclick="downloadPNG()">Download PNG</button>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+document.title = "Camo Generator";
+
+function addColor() {
+    const div = document.createElement("div");
+    div.className = "colorRow";
+    div.innerHTML = `
+        <input type="color" value="#556b2f" oninput="syncColor(this)">
+        <input type="text" value="#556b2f" size="8" oninput="syncHex(this)">
+    `;
+    document.getElementById("colors").appendChild(div);
+}
+
+function syncColor(colorInput) {
+    const textInput = colorInput.nextElementSibling;
+    textInput.value = colorInput.value;
+}
+
+function syncHex(textInput) {
+    const hex = textInput.value;
+    const colorInput = textInput.previousElementSibling;
+    if (/^#([0-9A-F]{3}|[0-9A-F]{6})$/i.test(hex)) {
+        colorInput.value = hex;
+    }
+}
+
+addColor();
+addColor();
+addColor();
+
+function generateCamo() {
+    const width = parseInt(document.getElementById("width").value);
+    const height = parseInt(document.getElementById("height").value);
+    const blockSize = parseInt(document.getElementById("blockSize").value);
+    const maxRun = parseInt(document.getElementById("maxRun").value);
+
+    const colorRows = document.querySelectorAll("#colors .colorRow");
+    const colors = Array.from(colorRows).map(row => {
+        const hex = row.querySelector("input[type=text]").value;
+        return hexToRgb(hex);
+    });
+
+    if (colors.length === 0) {
+        alert("Add at least one color.");
+        return;
+    }
+
+    const blocksX = Math.floor(width / blockSize);
+    const blocksY = Math.floor(height / blockSize);
+
+    const grid = Array.from({length: blocksY}, () => Array(blocksX).fill(null));
+    const colorIDs = colors.map((_, i) => i);
+
+    function allowed(x, y, cid) {
+        let run = 1;
+        let i = x - 1;
+        while (i >= 0 && grid[y][i] === cid) {
+            run++;
+            i--;
+        }
+        if (run > maxRun) return false;
+
+        run = 1;
+        let j = y - 1;
+        while (j >= 0 && grid[j][x] === cid) {
+            run++;
+            j--;
+        }
+        if (run > maxRun) return false;
+
+        return true;
+    }
+
+    for (let y = 0; y < blocksY; y++) {
+        for (let x = 0; x < blocksX; x++) {
+            shuffle(colorIDs);
+            let placed = false;
+            for (let cid of colorIDs) {
+                if (allowed(x, y, cid)) {
+                    grid[y][x] = cid;
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) {
+                grid[y][x] = colorIDs[Math.floor(Math.random() * colorIDs.length)];
+            }
+        }
+    }
+
+    const canvas = document.getElementById("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+
+    for (let by = 0; by < blocksY; by++) {
+        for (let bx = 0; bx < blocksX; bx++) {
+            const c = colors[grid[by][bx]];
+            ctx.fillStyle = `rgb(${c.r},${c.g},${c.b})`;
+            ctx.fillRect(bx * blockSize, by * blockSize, blockSize, blockSize);
+        }
+    }
+
+    document.body.style.backgroundImage = `url(${canvas.toDataURL()})`;
+    document.body.style.backgroundSize = "cover";
+}
+
+function downloadPNG() {
+    const exportW = parseInt(document.getElementById("exportWidth").value);
+    const exportH = parseInt(document.getElementById("exportHeight").value);
+
+    const previewCanvas = document.getElementById("canvas");
+    if (!previewCanvas.width || !previewCanvas.height) {
+        alert("Generate a camo first.");
+        return;
+    }
+
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = exportW;
+    tempCanvas.height = exportH;
+
+    const ctx = tempCanvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(previewCanvas, 0, 0, exportW, exportH);
+
+    const link = document.createElement("a");
+    link.download = "camo.png";
+    link.href = tempCanvas.toDataURL("image/png");
+    link.click();
+}
+
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+}
+
+function hexToRgb(hex) {
+    const bigint = parseInt(hex.slice(1), 16);
+    return {
+        r: (bigint >> 16) & 255,
+        g: (bigint >> 8) & 255,
+        b: bigint & 255
+    };
+}
+</script>
+
+</body>
+</html>
